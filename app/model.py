@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Numeric, Text, ForeignKey, DateTime
+from sqlalchemy import Column, String, Numeric, Text, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 import uuid
@@ -21,6 +21,7 @@ class Upload(Base):
     file_path = Column(Text)
     original_filename = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    file_hash = Column(String(64), index=True, nullable=True)
 
     transactions = relationship(
         "Transaction",
@@ -46,3 +47,36 @@ class Transaction(Base):
     raw_ocr = Column(JSONB)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+
+class Goal(Base):
+    __tablename__ = "goals"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    # เก็บเป็น "YYYY-MM" เช่น "2026-03"
+    month = Column(Text, nullable=False)
+
+    amount = Column(Numeric(12, 2), nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "month", name="uniq_user_month_goal"),
+    )
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+
+    display_name = Column(String(150), nullable=True)
+    first_name = Column(String(100), nullable=True)
+    last_name = Column(String(100), nullable=True)
+    phone = Column(String(30), nullable=True)
+    profile_image_url = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

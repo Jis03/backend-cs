@@ -1,6 +1,8 @@
 import re
 from datetime import datetime
-from zoneinfo import ZoneInfo 
+from zoneinfo import ZoneInfo
+import json
+from openai import OpenAI
 
 THAI_MONTHS = {
     "ม.ค.": 1, "ก.พ.": 2, "มี.ค.": 3, "เม.ย.": 4,
@@ -13,16 +15,14 @@ BANK_PATTERNS = [
     (r"(กสิกร|K\s?PLUS|KBank)", "ธนาคารกสิกรไทย"),
     (r"(ไทยพาณิชย์|SCB)", "ธนาคารไทยพาณิชย์"),
     (r"(กรุงเทพ|BBL|Bangkok\s?Bank)", "ธนาคารกรุงเทพ"),
-    (r"(กรุงศรี|BAY)", "ธนาคารกรุงศรีอยุธยา"),
     (r"(ออมสิน|GSB|by\s?GSB|CILBMIMGEMMMIMCSLUBLE)", "ธนาคารออมสิน"), 
     (r"(ทีทีบี|ttb|TMB|ธนชาต)", "ธนาคารทหารไทยธนชาต"),
-    (r"(Dime!|ไดม์)", "Dime"),
     (r"(TrueMoney|ทรูมันนี่|True\s?Wallet)", "TrueMoney Wallet"),
 ]
 
 AMOUNT_KEYWORDS = ["จำนวน", "ยอด", "amount", "Amount", "AMOUNT"]
 
-MEMO_KEYWORDS = ["บันทึกความจำ", "หมายเหตุ", "memo", "note" , "บันทึกช่วยจำ","LCBCฉuunn","LCBcauunn","บันทึก"]
+MEMO_KEYWORDS = ["บันทึกความจำ", "หมายเหตุ", "memo", "note" , "บันทึกช่วยจำ","LCBCฉuunn","LCBcauunn","บันทึก","LCBCRUUMn","LCBCฉuun","LCBCRUUM"]
 
 CATEGORY_KEYWORDS = {
     "Food&Drink": ["อาหาร", "ข้าว", "กาแฟ", "ชา", "น้ำ", "ร้านอาหาร", "คาเฟ่"],
@@ -99,20 +99,72 @@ def _extract_memo(texts: list[str]) -> str | None:
                         return nxt
     return None
 
+client = OpenAI()
 
-def _classify_category_from_memo(memo: str) -> str | None:
-    if not memo:
+def classify_category_ai(memo: str | None) -> str | None:
+    if not memo or not memo.strip():
         return None
+    
+    categories = ["Food&Drink", "Transport", "Shopping", "Utilities", "Others"]
 
-    text = memo.lower()
-    best_cat, best_score = None, 0
+    schema = {
+        "name": "category_result",
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "category": {"type": "string", "enum": categories},
+                "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+            },
+            "required": ["category", "confidence"]
+        }
+    }
 
-    for cat, kws in CATEGORY_KEYWORDS.items():
-        score = sum(1 for kw in kws if kw in text)
-        if score > best_score:
-            best_cat, best_score = cat, score
+    instructions = """
+        คุณคือระบบจัดหมวดหมู่รายการค่าใช้จ่ายจาก “memo” ภาษาไทย/อังกฤษ
+        เลือก category ได้แค่ 1 ค่าในรายการ: Food&Drink, Transport, Shopping, Utilities, Others
 
-    return best_cat if best_cat else None
+        เกณฑ์:
+        - Food&Drink: อาหาร/เครื่องดื่ม/ร้านอาหาร/คาเฟ่/กาแฟ/ชา
+        - Transport: เดินทาง/รถ/แท็กซี่/BTS/MRT/Grab/น้ำมัน/ค่าทางด่วน
+        - Shopping: ของใช้/ของจิปาถะ/ซื้อของ/7-11/Lotus/Big C/ออนไลน์ช้อป
+        - Utilities: ที่พัก/โรงแรม/ค่าเช่า/ค่าน้ำ/ค่าไฟ/เน็ต/โทรศัพท์
+        - Others: ไม่ชัดเจน/ไม่เข้าพวก/โอนเงินทั่วไป/ลงทุน/ค่าธรรมเนียม/บริจาค ฯลฯ
+
+        กติกา:
+        - ถ้าไม่แน่ใจ ให้เลือก Others
+        - ตอบเป็น JSON ตามสคีมาที่กำหนดเท่านั้น
+        """
+    try:
+        resp = client.responses.create(
+        model="gpt-5",
+        input=[
+            {"role": "system", "content": instructions},
+            {"role": "user", "content": f"memo: {memo}"},
+        ],
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "category_result",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "category": {"type": "string", "enum": ["Food&Drink","Transport","Shopping","Utilities","Others"]},
+                        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+                    },
+                    "required": ["category", "confidence"]
+                }
+            }
+        },
+    )
+        data = json.loads(resp.output_text)
+        category = data["category"]
+        return category if category in ALLOWED_CATEGORIES else "Others"
+    except Exception:
+        return "Others"
+    
 
 
 def extract_fields(texts: list[str]):
@@ -167,9 +219,11 @@ def extract_fields(texts: list[str]):
     transferred_at = _combine_transferred_at(date, time)
 
     
-    memo = _extract_memo(texts)
-    suggested_category = _classify_category_from_memo(memo) if memo else None
-    category_required = suggested_category is None
+    memo = _extract_memo(texts) 
+    suggested_category = classify_category_ai(memo) if memo else None
+
+    # ถ้า AI ตอบ Other ให้ถือว่ายังต้องให้ user เลือกเอง (ปรับได้ตาม flow)
+    category_required = (suggested_category is None) or (suggested_category == "Others")
 
     return {
         "bank": sender_bank,

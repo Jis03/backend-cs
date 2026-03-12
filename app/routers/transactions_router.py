@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import extract, and_
+from sqlalchemy import extract, and_, func
 from uuid import UUID
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -47,7 +47,8 @@ def _parse_transferred_at_iso(s: str):
 
 @router.get("/")
 def list_transactions(
-    range: str = Query("all", pattern="^(all|month|year)$"),
+    range: str = Query("all", pattern="^(all|day|month|year)$"),
+    date: str | None = None,
     year: int | None = None,
     month: int | None = None,  # 1-12
     bank: str | None = None,   # search bank
@@ -65,7 +66,18 @@ def list_transactions(
     if bank:
         q = q.filter(Transaction.bank.ilike(f"%{bank}%"))
 
-    if range == "year":
+    if range == "day":
+        if not date:
+            raise HTTPException(status_code=400, detail="date is required for range=day (YYYY-MM-DD)")
+        try:
+            target = datetime.fromisoformat(date).date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid date format, expected YYYY-MM-DD")
+
+        # ✅ แปลง transferred_at เป็นเวลาไทย แล้วเทียบเฉพาะวัน
+        q = q.filter(func.date(func.timezone("Asia/Bangkok", Transaction.transferred_at)) == target)
+
+    elif range == "year":
         if not year:
             raise HTTPException(status_code=400, detail="year is required for range=year")
         q = q.filter(extract("year", Transaction.transferred_at) == year)
@@ -194,3 +206,41 @@ def update_transaction(
         "time": dt.astimezone(bkk).strftime("%H:%M") if dt else None,
         "file_path": f"/{tx.upload.file_path.lstrip('/')}" if tx.upload and tx.upload.file_path else None
     }
+
+@router.delete("/{tx_id}")
+def delete_transaction_and_upload(
+    tx_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    tx = db.query(Transaction).filter(Transaction.id == tx_id).first()
+
+    if not tx:
+        raise HTTPException(status_code=404, detail="transaction not found")
+
+    # check owner
+    if not tx.upload or tx.upload.user_id != user.id:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    upload = tx.upload
+    file_path = upload.file_path
+
+    # delete transaction
+    db.delete(tx)
+    db.commit()
+
+    # check remaining transactions
+    remain = db.query(Transaction).filter(Transaction.upload_id == upload.id).count()
+
+    if remain == 0:
+        db.delete(upload)
+        db.commit()
+
+        # delete file
+        try:
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass
+
+    return {"ok": True}

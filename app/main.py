@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from .db import engine, Base
-from .routers import auth_router, upload_router, dashboard_router, transactions_router, stats_router
+from .routers import auth_router, upload_router, dashboard_router, transactions_router, stats_router, finance_router , goals_router , profile_router
 import os
 
 
@@ -30,3 +30,6 @@ app.include_router(upload_router.router)
 app.include_router(dashboard_router.router)
 app.include_router(transactions_router.router)
 app.include_router(stats_router.router)
+app.include_router(finance_router.router)
+app.include_router(goals_router.router)
+app.include_router(profile_router.router)
