@@ -19,6 +19,7 @@ def get_db():
         yield db
     finally:
         db.close()
+        
 
 
 def _pct_change(current: float, previous: float) -> float:

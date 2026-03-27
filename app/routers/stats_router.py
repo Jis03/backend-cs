@@ -13,6 +13,7 @@ router = APIRouter(prefix="/stats", tags=["Statistics"])
 
 BKK = ZoneInfo("Asia/Bangkok")
 
+
 # -------------------------
 # DB
 # -------------------------
@@ -22,6 +23,7 @@ def get_db():
         yield db
     finally:
         db.close()
+
 
 # -------------------------
 # Helpers
@@ -34,8 +36,24 @@ def _month_range(y: int, m: int):
         end = date(y, m + 1, 1)
     return start, end
 
+
 def _days_in_month(y: int, m: int) -> int:
     return monthrange(y, m)[1]
+
+
+def _five_day_labels(days_in_month: int):
+    labels = []
+    start = 1
+    while start <= days_in_month:
+        end = min(start + 4, days_in_month)
+        labels.append({
+            "label": f"{start}-{end}",
+            "start": start,
+            "end": end,
+        })
+        start += 5
+    return labels
+
 
 def _base_query(db: Session, user_id: int):
     return (
@@ -43,6 +61,7 @@ def _base_query(db: Session, user_id: int):
         .join(Upload, Transaction.upload_id == Upload.id)
         .filter(Upload.user_id == user_id)
     )
+
 
 def _apply_range(q, period: str, year: int | None, month: int | None):
     if period == "all":
@@ -73,6 +92,7 @@ def _apply_range(q, period: str, year: int | None, month: int | None):
 
     raise HTTPException(status_code=400, detail="invalid range")
 
+
 CATEGORY_ORDER = ["Food&Drink", "Transport", "Shopping", "Utilities", "Others"]
 CATEGORY_KEY_TO_LABEL = {
     "food-drink": "Food&Drink",
@@ -83,6 +103,9 @@ CATEGORY_KEY_TO_LABEL = {
 }
 LABEL_SET = set(CATEGORY_ORDER)
 KEY_SET = set(CATEGORY_KEY_TO_LABEL.keys())
+
+BANK_ORDER = ["KBank", "SCB", "BBL", "Krungsri", "TTB", "KTB", "GSB", "TrueMoney"]
+
 
 def normalize_category(v: str | None) -> str:
     if not v:
@@ -100,6 +123,7 @@ def normalize_category(v: str | None) -> str:
 
     return "Others"
 
+
 def normalize_bank(v: str | None) -> str:
     if not v:
         return "-"
@@ -107,27 +131,62 @@ def normalize_bank(v: str | None) -> str:
     s = v.strip()
     low = s.lower()
 
-    if "kbank" in low or "กสิกร" in s:
+    # KBank
+    if "kbank" in low or "kasikorn" in low or "กสิกร" in s:
         return "KBank"
-    if "scb" in low or "ไทยพาณิชย์" in s:
+
+    # SCB
+    if "scb" in low or "siam commercial" in low or "ไทยพาณิชย์" in s:
         return "SCB"
-    if "bbl" in low or "กรุงเทพ" in s or "bangkok bank" in low:
+
+    # BBL
+    if "bbl" in low or "bangkok bank" in low or "กรุงเทพ" in s:
         return "BBL"
-    if "krungsri" in low or "กรุงศรี" in s:
+
+    # Krungsri
+    if "krungsri" in low or "bay" in low or "กรุงศรี" in s:
         return "Krungsri"
-    if "ttb" in low or "ทหารไทยธนชาต" in s or "tmb" in low or "ธนชาต" in s:
+
+    # TTB
+    if (
+        "ttb" in low
+        or "tmb" in low
+        or "thanachart" in low
+        or "ธนชาต" in s
+        or "ทหารไทยธนชาต" in s
+    ):
         return "TTB"
-    if "ktb" in low or "กรุงไทย" in s:
+
+    # KTB
+    if (
+        "ktb" in low
+        or "krungthai" in low
+        or "krung thai" in low
+        or "กรุงไทย" in s
+    ):
         return "KTB"
-    if "gsb" in low or "ออมสิน" in s:
+
+    # GSB
+    if "gsb" in low or "government savings" in low or "ออมสิน" in s:
         return "GSB"
-    if "truemoney" in low or "ทรูมันนี่" in s:
+
+    # TrueMoney
+    if (
+        "truemoney" in low
+        or "true money" in low
+        or "true wallet" in low
+        or "truemoney wallet" in low
+        or "ทรูมันนี่" in s
+        or "ทรูวอลเล็ท" in s
+        or "วอลเล็ท" in s
+    ):
         return "TrueMoney"
 
     return s
 
+
 def _get_month_goal(db: Session, user_id: int, year: int, month: int) -> float | None:
-    target = f"{year}-{month:02d}"   # เช่น 2026-03
+    target = f"{year}-{month:02d}"
 
     g = (
         db.query(Goal)
@@ -145,21 +204,17 @@ def _get_month_goal(db: Session, user_id: int, year: int, month: int) -> float |
     except Exception:
         return None
 
+
 def _tz_expr():
-    # เพื่อ group by ตามเวลาไทย
     return func.timezone("Asia/Bangkok", Transaction.transferred_at)
 
+
 def _timeline_config(period: str, year: int | None = None, month: int | None = None):
-    """
-    ใช้กับ
-    - expenses_over_time
-    - bank_heatmap
-    """
     if period == "all":
         return {
             "unit": "year",
             "extract_expr": extract("year", _tz_expr()),
-            "labels": None,  # ใช้ค่าที่ query ได้จริง
+            "labels": None,
         }
 
     if period == "year":
@@ -179,6 +234,7 @@ def _timeline_config(period: str, year: int | None = None, month: int | None = N
 
     raise HTTPException(status_code=400, detail="invalid range")
 
+
 @router.get("/")
 def stats(
     period: str = Query("all", alias="range", pattern="^(all|month|year)$"),
@@ -189,7 +245,6 @@ def stats(
 ):
     q, y, m = _apply_range(_base_query(db, user.id), period, year, month)
 
-    # เอาไว้ใช้คำนวณยอดเงิน
     q_valid = q.filter(
         Transaction.transferred_at.isnot(None),
         Transaction.amount.isnot(None),
@@ -202,7 +257,6 @@ def stats(
         q_valid.with_entities(func.coalesce(func.sum(Transaction.amount), 0)).scalar() or 0
     )
 
-    # จำนวนสลิปที่อัปโหลด (นับ Upload ไม่ใช่ Transaction)
     total_transactions = int(
         q.with_entities(func.count(distinct(Upload.id))).scalar() or 0
     )
@@ -218,62 +272,97 @@ def stats(
     )
     top_category = normalize_category(top_category_row[0]) if top_category_row else "Others"
 
-    top_bank_row = (
+    # รวมยอด top bank หลัง normalize
+    raw_top_bank_rows = (
         q_valid.with_entities(
             Transaction.bank,
             func.coalesce(func.sum(Transaction.amount), 0).label("total"),
         )
         .group_by(Transaction.bank)
-        .order_by(func.coalesce(func.sum(Transaction.amount), 0).desc())
-        .first()
+        .all()
     )
-    top_bank = normalize_bank(top_bank_row[0]) if top_bank_row else "-"
+
+    normalized_bank_totals = {}
+    for bank, total in raw_top_bank_rows:
+        b = normalize_bank(bank)
+        normalized_bank_totals[b] = normalized_bank_totals.get(b, 0.0) + float(total or 0)
+
+    if normalized_bank_totals:
+        top_bank = max(normalized_bank_totals.items(), key=lambda x: x[1])[0]
+    else:
+        top_bank = "-"
 
     # -------------------------
     # 1) Expenses Over Time
     # all   -> year
     # year  -> month
-    # month -> day
+    # month -> 5-day range cumulative
     # -------------------------
     tl = _timeline_config(period, y, m)
 
-    rows = (
-        q_valid.with_entities(
-            tl["extract_expr"].label("k"),
-            func.coalesce(func.sum(Transaction.amount), 0).label("total"),
-        )
-        .group_by("k")
-        .order_by("k")
-        .all()
-    )
-
-    raw_map = {int(k): float(total) for k, total in rows if k is not None}
-
-    if tl["labels"] is None:
-        # all -> แสดงเฉพาะปีที่มีข้อมูลจริง
-        expenses_over_time = [
-            {"x": int(k), "total": float(v)}
-            for k, v in sorted(raw_map.items(), key=lambda item: item[0])
-        ]
-    else:
-        # year/month -> เติมช่องว่างเป็น 0 ให้ครบ
-        expenses_over_time = [
-            {"x": label, "total": float(raw_map.get(label, 0.0))}
-            for label in tl["labels"]
-        ]
-
-    # goal ใช้เฉพาะ month
     month_goal = None
     per_bucket_goal = None
 
     if period == "month" and y and m:
-        month_goal = _get_month_goal(db, user.id, y, m)
         days = _days_in_month(y, m)
 
-        if month_goal is not None and month_goal > 0 and days > 0:
+        rows = (
+            q_valid.with_entities(
+                extract("day", _tz_expr()).label("day"),
+                func.coalesce(func.sum(Transaction.amount), 0).label("total"),
+            )
+            .group_by("day")
+            .order_by("day")
+            .all()
+        )
+
+        day_map = {int(day): float(total) for day, total in rows if day is not None}
+        bucket_defs = _five_day_labels(days)
+
+        expenses_over_time = []
+        running_total = 0.0
+
+        for item in bucket_defs:
+            bucket_total = sum(
+                day_map.get(d, 0.0)
+                for d in range(item["start"], item["end"] + 1)
+            )
+            running_total += bucket_total
+
+            expenses_over_time.append({
+                "x": item["label"],
+                "total": float(running_total),
+            })
+
+        month_goal = _get_month_goal(db, user.id, y, m)
+        if month_goal is not None and month_goal > 0:
             per_bucket_goal = float(month_goal)
         else:
             per_bucket_goal = None
+
+    else:
+        rows = (
+            q_valid.with_entities(
+                tl["extract_expr"].label("k"),
+                func.coalesce(func.sum(Transaction.amount), 0).label("total"),
+            )
+            .group_by("k")
+            .order_by("k")
+            .all()
+        )
+
+        raw_map = {int(k): float(total) for k, total in rows if k is not None}
+
+        if tl["labels"] is None:
+            expenses_over_time = [
+                {"x": int(k), "total": float(v)}
+                for k, v in sorted(raw_map.items(), key=lambda item: item[0])
+            ]
+        else:
+            expenses_over_time = [
+                {"x": label, "total": float(raw_map.get(label, 0.0))}
+                for label in tl["labels"]
+            ]
 
     # -------------------------
     # 2) Category by Bank (Stacked)
@@ -293,8 +382,15 @@ def stats(
         b = normalize_bank(bank)
         bank_totals[b] = bank_totals.get(b, 0.0) + float(total or 0)
 
-    top_banks = [b for b, _ in sorted(bank_totals.items(), key=lambda x: x[1], reverse=True)]
-    top_banks = top_banks[:5]
+    # ใช้ลำดับธนาคารคงที่ เพื่อไม่ให้ KTB / TrueMoney หายเพราะไม่ติด top 5
+    top_banks = [b for b in BANK_ORDER if b in bank_totals and bank_totals[b] > 0]
+
+    # ถ้ามีชื่อธนาคารอื่นนอก BANK_ORDER ให้ต่อท้าย
+    other_banks = [
+        b for b, total in sorted(bank_totals.items(), key=lambda x: x[1], reverse=True)
+        if b not in top_banks and total > 0
+    ]
+    top_banks.extend(other_banks)
 
     cat_bank_map = {
         c: {b: 0.0 for b in top_banks}
@@ -361,64 +457,116 @@ def stats(
     # 4) Bank Heatmap
     # all   -> bank x year
     # year  -> bank x month
-    # month -> bank x day
+    # month -> bank x 5-day range
     # -------------------------
-    heat_rows = (
-        q_valid.with_entities(
-            Transaction.bank.label("bank"),
-            tl["extract_expr"].label("bucket"),
-            func.coalesce(func.sum(Transaction.amount), 0).label("total"),
-        )
-        .group_by(Transaction.bank, "bucket")
-        .all()
-    )
+    if period == "month" and y and m:
+        days = _days_in_month(y, m)
+        bucket_defs = _five_day_labels(days)
+        heat_buckets = [b["label"] for b in bucket_defs]
 
-    # ใช้ top banks จาก stacked ก่อน ถ้าไม่มีค่อย fallback
-    banks = top_banks[:]
-    if not banks:
-        fallback_bank_totals = {}
-        for bank, bucket, total in heat_rows:
-            b = normalize_bank(bank)
-            fallback_bank_totals[b] = fallback_bank_totals.get(b, 0.0) + float(total or 0)
-
-        banks = [
-            b for b, _ in sorted(
-                fallback_bank_totals.items(),
-                key=lambda x: x[1],
-                reverse=True
+        raw_heat = (
+            q_valid.with_entities(
+                Transaction.bank.label("bank"),
+                extract("day", _tz_expr()).label("day"),
+                func.coalesce(func.sum(Transaction.amount), 0).label("total"),
             )
-        ][:6]
+            .group_by(Transaction.bank, "day")
+            .all()
+        )
 
-    if tl["labels"] is None:
-        # all -> ปีตามข้อมูลจริง
-        heat_buckets = sorted({int(bucket) for _, bucket, _ in heat_rows if bucket is not None})
+        banks = top_banks[:]
+        if not banks:
+            fallback_bank_totals = {}
+            for bank, day, total in raw_heat:
+                b = normalize_bank(bank)
+                fallback_bank_totals[b] = fallback_bank_totals.get(b, 0.0) + float(total or 0)
+
+            banks = [b for b in BANK_ORDER if fallback_bank_totals.get(b, 0) > 0]
+            other_banks = [
+                b for b, total in sorted(fallback_bank_totals.items(), key=lambda x: x[1], reverse=True)
+                if b not in banks and total > 0
+            ]
+            banks.extend(other_banks)
+
+        bank_index = {b: i for i, b in enumerate(banks)}
+        matrix = [[0.0 for _ in heat_buckets] for _ in banks]
+
+        for bank, day, total in raw_heat:
+            if day is None:
+                continue
+
+            b = normalize_bank(bank)
+            if b not in bank_index:
+                continue
+
+            day_num = int(day)
+            for j, bucket in enumerate(bucket_defs):
+                if bucket["start"] <= day_num <= bucket["end"]:
+                    matrix[bank_index[b]][j] += float(total or 0)
+                    break
+
+        bank_heatmap = {
+            "banks": banks,
+            "labels": heat_buckets,
+            "unit": "range",
+            "matrix": matrix,
+            "metric": "amount",
+        }
+
     else:
-        heat_buckets = tl["labels"]
+        heat_rows = (
+            q_valid.with_entities(
+                Transaction.bank.label("bank"),
+                tl["extract_expr"].label("bucket"),
+                func.coalesce(func.sum(Transaction.amount), 0).label("total"),
+            )
+            .group_by(Transaction.bank, "bucket")
+            .all()
+        )
 
-    bank_index = {b: i for i, b in enumerate(banks)}
-    bucket_index = {bucket: i for i, bucket in enumerate(heat_buckets)}
+        banks = top_banks[:]
+        if not banks:
+            fallback_bank_totals = {}
+            for bank, bucket, total in heat_rows:
+                b = normalize_bank(bank)
+                fallback_bank_totals[b] = fallback_bank_totals.get(b, 0.0) + float(total or 0)
 
-    matrix = [[0.0 for _ in heat_buckets] for _ in banks]
+            banks = [b for b in BANK_ORDER if fallback_bank_totals.get(b, 0) > 0]
+            other_banks = [
+                b for b, total in sorted(fallback_bank_totals.items(), key=lambda x: x[1], reverse=True)
+                if b not in banks and total > 0
+            ]
+            banks.extend(other_banks)
 
-    for bank, bucket, total in heat_rows:
-        if bucket is None:
-            continue
+        if tl["labels"] is None:
+            heat_buckets = sorted({int(bucket) for _, bucket, _ in heat_rows if bucket is not None})
+        else:
+            heat_buckets = tl["labels"]
 
-        b = normalize_bank(bank)
-        k = int(bucket)
+        bank_index = {b: i for i, b in enumerate(banks)}
+        bucket_index = {bucket: i for i, bucket in enumerate(heat_buckets)}
 
-        if b not in bank_index or k not in bucket_index:
-            continue
+        matrix = [[0.0 for _ in heat_buckets] for _ in banks]
 
-        matrix[bank_index[b]][bucket_index[k]] += float(total or 0)
+        for bank, bucket, total in heat_rows:
+            if bucket is None:
+                continue
 
-    bank_heatmap = {
-        "banks": banks,
-        "labels": heat_buckets,
-        "unit": tl["unit"],   # year / month / day
-        "matrix": matrix,
-        "metric": "amount",
-    }
+            b = normalize_bank(bank)
+            k = int(bucket)
+
+            if b not in bank_index or k not in bucket_index:
+                continue
+
+            matrix[bank_index[b]][bucket_index[k]] += float(total or 0)
+
+        bank_heatmap = {
+            "banks": banks,
+            "labels": heat_buckets,
+            "unit": tl["unit"],
+            "matrix": matrix,
+            "metric": "amount",
+        }
 
     # -------------------------
     # Return
@@ -429,33 +577,25 @@ def stats(
             "year": year,
             "month": month,
         },
-
         "cards": {
             "total_expenses": total_expenses,
             "top_category": top_category,
             "top_bank": top_bank,
             "total_transactions": total_transactions,
         },
-
         "expenses_over_time": {
-            "unit": tl["unit"],   # year / month / day
+            "unit": tl["unit"] if period != "month" else "range",
             "items": expenses_over_time,
         },
-
         "goal": {
             "month_goal": month_goal if period == "month" else None,
             "per_day_goal": per_bucket_goal if period == "month" else None,
         },
-
-        # เผื่อ frontend เก่าใช้อยู่
         "average_line": per_bucket_goal if period == "month" else None,
-
         "category_by_bank": {
             "banks": top_banks,
             "items": category_by_bank,
         },
-
         "spending_spread": spending_spread,
-
         "bank_heatmap": bank_heatmap,
     }

@@ -17,9 +17,9 @@ def get_db():
         db.close()
 
 # ✅ FE ใช้ key ชุดนี้
-CATEGORY_ORDER = ["food-drink", "transport", "shopping", "utilities", "others"]
+CATEGORY_ORDER = ["food&drink", "transport", "shopping", "utilities", "others"]
 CATEGORY_KEY_TO_LABEL = {
-    "food-drink": "Food&Drink",
+    "food&drink": "Food&Drink",
     "transport": "Transport",
     "shopping": "Shopping",
     "utilities": "Utilities",
