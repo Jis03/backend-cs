@@ -85,6 +85,28 @@ Once the server is running, open:
 
 http://localhost:8000/docs
 
+## 🗄 Database Configuration
+
+This project uses PostgreSQL.
+
+Default connection settings:
+
+- Host: localhost  
+- Port: 5433  
+- Database: your_database_name  
+- Username: your_username  
+- Password: your_password  
+
+> ⚠️ Note: The default PostgreSQL port is 5432, but this project uses port 5433.
+
+## 🔐 Environment Variables
+
+Create a `.env` file and configure:
+
+```env
+DATABASE_URL=postgresql://username:password@localhost:5433/dbname
+```
+
 🗄 Database Setup
 
 This project uses PostgreSQL.
