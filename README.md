@@ -104,7 +104,11 @@ Default connection settings:
 Create a `.env` file and configure:
 
 ```env
-DATABASE_URL=postgresql://username:password@localhost:5433/dbname
+DATABASE_URL=postgresql+psycopg2://postgres:your_password@localhost:5433/postgres
+JWT_SECRET=your_jwt_secret
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+DISABLE_MODEL_SOURCE_CHECK=True
+OPENAI_API_KEY=your_openai_api_key
 ```
 
 🗄 Database Setup
