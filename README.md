@@ -46,7 +46,8 @@ Make sure you have the following installed:
 Clone the repository:
 
 ```bash
-git clone <(https://github.com/Jis03/backend-cs.git)>
+git clone https://github.com/Jis03/backend-cs.git
+cd backend-cs
 ```
 Create a virtual environment:
 
