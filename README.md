@@ -48,28 +48,37 @@ Clone the repository:
 ```bash
 git clone <your-repository-url>
 cd OCR-BANK
+```
 Create a virtual environment:
 
+```bash
 python -m venv venv
+```
 
 Activate the virtual environment:
 
 Windows
+```bash
 venv\Scripts\activate
+```
 macOS / Linux
+```bash
 source venv/bin/activate
+```
 
 Install dependencies:
-
+```bash
 pip install -r requirements.txt
-
+```
 ⚠️ If you encounter missing dependencies, install them based on the error messages shown in the terminal.
 
 ▶️ Running the Application
 
 Start the FastAPI server:
-
+```bash
 python -m uvicorn app.main:app --reload --port 8000
+```
+
 📖 API Documentation
 
 Once the server is running, open:
@@ -81,14 +90,11 @@ http://localhost:8000/docs
 This project uses PostgreSQL.
 
 Enable Extension
+```bash
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 🧱 Database Schema
-
-Run the following SQL script:
-
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- users
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     username TEXT NOT NULL UNIQUE,
@@ -99,7 +105,6 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
 
--- uploads
 CREATE TABLE IF NOT EXISTS uploads (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -113,7 +118,6 @@ CREATE TABLE IF NOT EXISTS uploads (
 CREATE INDEX IF NOT EXISTS idx_uploads_uploaded_at ON uploads (uploaded_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_uploads_file_hash ON uploads (file_hash);
 
--- enum
 DO $$
 BEGIN
     CREATE TYPE expense_category AS ENUM (
@@ -180,3 +184,5 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+```
+
